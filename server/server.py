@@ -3,7 +3,7 @@ import time
 import SocketServer
 import SimpleHTTPServer
 
-PORT = 20001
+PORT = 20000
 
 class HTTPCacheRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     def send_head(self):
@@ -11,7 +11,7 @@ class HTTPCacheRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             filename = self.path.strip("/")
             if os.path.isfile(filename):
                 a = time.strptime(time.ctime(os.path.getmtime(filename)), "%a %b %d %H:%M:%S %Y")
-                b = time.strptime(self.headers.get('If-Modified-Since', None), "%a %b  %d %H:%M:%S %Z %Y")
+                b = time.strptime(self.headers.get('If-Modified-Since', None), "%a %b %d %H:%M:%S %Z %Y")
                 if a < b:
                     self.send_response(304)
                     self.end_headers()
