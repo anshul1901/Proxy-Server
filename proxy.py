@@ -2,6 +2,7 @@ import sys
 import os
 import socket
 import threading
+import time
 
 class Server:
     def __init__(self, config):
@@ -32,79 +33,104 @@ class Server:
             print("ERROR: Couldn't get server to listen")
             sys.exit(0)
 
-        # Maintain list of clients
-        self.__clients = {}
-
         while True:
-
             try:
-                (clientSocket, client_address) = self.serverSocket.accept()
-                print("Connection accepted from " + str(client_address))
+                (conn, addr) = self.serverSocket.accept()
+                try:
+                    threading.Thread(target=self.request_handler,
+                                     args = [conn, addr, config]).start()
+                    print("Thread initialized")
+                except:
+                    print("ERROR: Failed to initialize thread")
+                    sys.exit(0)
+                print("Connection accepted from " + str(addr))
             except:
                 print("ERROR : Error in accepting Clients / Keyboard interrupt Caught")
                 sys.exit(0)
 
-            # Creating threads to handle mutiple connections simultaneously (bonus)
-            # d = threading.Thread(name=self._getClientName(client_address),
-            # target = self.proxy_thread, args=(clientSocket, client_address))
-            # d.setDaemon(True)
-            # d.start()
+    def request_handler(self, conn, addr, config):
+        try:
+            client_req = conn.recv(config['MAX_REQUEST_LEN'])
+        except:
+            print("ERROR: Couldn't receive request from client")
+            sys.exit(0)
 
-            try:
-                request = conn.recv(config['MAX_REQUEST_LEN'])
-            except:
-                print("ERROR: Couldn't receive request from client")
-                sys.exit(0)
+        req = client_req.split("\n")
+        url = req[0].split(" ")[1]
+        host = req[1].split(":")[1][1:]
+        port = int(req[1].split(":")[2])
 
-            # parse the first line
-            first_line = request.split('\n')[0]
+        print ("Opening socket to end server at" + host + ":" + str(port))
 
-            # get url
-            url = first_line.split(' ')[1]
+        try:
+            sock = socket.socket()
+        except:
+            print("ERROR: Failed to create socket to end server")
+            sys.exit(0)
 
-            http_pos = url.find("://") # find pos of ://
-            if (http_pos==-1):
-                temp = url
-            else:
-                temp = url[(http_pos+3):] # get the rest of url
+        try:
+            sock.connect((host, port))
+        except:
+            print("ERROR: Failed to connect to end server")
+            sys.exit(0)
 
-            port_pos = temp.find(":") # find the port pos (if any)
+        http_pos = url.find("://")
+        if http_pos != -1:
+            url = url[(http_pos + 3):]
 
-            # find end of web server
-            webserver_pos = temp.find("/")
-            if webserver_pos == -1:
-                webserver_pos = len(temp)
+        file_pos = url.find("/")
+        url = url[file_pos:]
 
-            webserver = ""
-            port = -1
-            if (port_pos==-1 or webserver_pos < port_pos):
+        req[0] = "GET " + url + " HTTP/1.1"
 
-                # default port
-                port = 80
-                webserver = temp[:webserver_pos]
+        new_request = ""
+        for i in req:
+            new_request += (i + "\r\n")
 
-            else: # specific port
-                port = int((temp[(port_pos+1):])[:webserver_pos-port_pos-1])
-                webserver = temp[:port_pos]
+        print("Forwarding request to end server " + url)
+        try:
+            sock.send(new_request)
+        except:
+            print("ERROR: Failed to send request to end server")
+            sys.exit(0)
 
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(config['CONNECTION_TIMEOUT'])
-            s.connect((webserver, port))
-            s.sendall(request)
+        try:
+            response = sock.recv(config['MAX_REQUEST_LEN'])
+            print(response)
+        except:
+            print("ERROR: No response received from end server")
+            sys.exit(0)
 
-            while True:
-                # receive data from web server
-                data = s.recv(config['MAX_REQUEST_LEN'])
+        try:
+            conn.send(response)
+            print("Forwarding response to client")
+        except:
+            print("ERROR: Failed to send response back to client")
+            sys.exit(0)
 
-                if (len(data) > 0):
-                    conn.send(data) # send to browser/client
-                else:
-                    break
+        print("Recieving data from origin server and forwarding to client")
+        while True:
+            data = sock.recv(1024)
+            conn.send(data)
+            if not data:
+                break
+
+        print ("Closing connection to client")
+        try:
+            conn.close()
+        except:
+            print("ERROR: Couldn't close connection")
+            sys.exit(0)
+
+        print("Exiting thread")
+        print("\n\n")
+        sys.exit(0)
 
 config = {
 'HOST_NAME': '127.0.0.1',
-'MAX_REQUEST_LEN': 12345,
+'MAX_REQUEST_LEN': 99999,
 'BIND_PORT': 12345,
-'CONNECTION_TIMEOUT': 40
+'CONNECTION_TIMEOUT': 10
 }
+
 s = Server(config)
